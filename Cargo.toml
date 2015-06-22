@@ -1,0 +1,7 @@
+[package]
+name = "orm"
+version = "0.1.0"
+authors = ["Alec Winograd <awinograd@gmail.com>"]
+
+[dependencies.mysql]
+git = "https://github.com/blackbeam/rust-mysql-simple"
