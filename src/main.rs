@@ -41,15 +41,19 @@ pub mod metal {
                     ]
                 }
 
-                fn concatenated_columns() -> String {
+                fn concatenated_columns() -> &'static str {
+                    stringify!($( $ex ), *)
+                }
+
+                fn value_placeholders() -> String {
                     $name::columns().iter().fold(
-                        String::new(), |acc, el| {
+                        "(".to_string(), |acc, _| {
                             match acc.len() {
-                                0 => { acc + el },
-                                _ => { acc + ", " + el }
+                                1 => { acc + "?" },
+                                _ => { acc + ", ?" }
                             }
                         }
-                    )
+                    ) + ")"
                 }
 
                 pub fn insert_all(pool: &MyPool, items: &Vec<$name>) {
@@ -58,10 +62,11 @@ pub mod metal {
                     // else.
                     // Also we assume that no error happened in `prepare`.
                     let query = "INSERT INTO ".to_string() +
-                        &$name::table() +
+                        $name::table() +
                         " (" +
-                        &$name::concatenated_columns() +
-                        ") VALUES (?, ?, ?)";
+                        $name::concatenated_columns() +
+                        ") VALUES " +
+                        &$name::value_placeholders();
                     println!("{}", query);
                     for mut stmt in pool.prepare(query).into_iter() {
                         for i in items.iter() {
