@@ -9,7 +9,7 @@ use mysql::value::from_value;
 #[macro_use]
 pub mod metal {
 
-    macro_rules! new_orm {
+    macro_rules! oxide {
         (
             $name:ident,
             $table:expr,
@@ -95,7 +95,7 @@ pub mod metal {
     }
 }
 
-new_orm!(
+oxide!(
     Payment,
     "tmp.payment",
     [
