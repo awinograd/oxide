@@ -1,5 +1,5 @@
 [package]
-name = "orm"
+name = "oxide"
 version = "0.1.0"
 authors = ["Alec Winograd <awinograd@gmail.com>"]
 
