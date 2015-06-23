@@ -6,36 +6,105 @@ use mysql::conn::MyOpts;
 use mysql::conn::pool::MyPool;
 use mysql::value::from_value;
 
+#[macro_use]
 pub mod metal {
-    pub trait Metallic {
-        fn table(&self) -> &str;
-        fn columns(&self) -> Vec<&str>;
-    }
 
-    // pub fn all<T>() -> Vec<T> {
-    // }
+    macro_rules! new_orm {
+        (
+            $name:ident,
+            $table:expr,
+            // Note the extra trailing comma to allow last field to have comma
+            [ $( $idx:expr, $ex:ident: $ty:ty ),* ,]
+        ) => {
+            // Define the struct with fields
+            #[derive(Debug, PartialEq, Eq)]
+            struct $name {
+                $( $ex: $ty ),*
+            }
+
+            impl $name {
+                fn table() -> &'static str {
+                    $table
+                }
+
+                // Build an instance of $name from row data
+                fn from_row(row: Vec<mysql::value::Value>) -> $name {
+                    $name {
+                        $( $ex: from_value(&row[$idx]) ),*
+                    }
+                }
+
+                // Return a Vec<str> of all of the columns for the struct
+                fn columns() -> Vec<&'static str> {
+                    vec![
+                        $( stringify!($ex) ),*
+                    ]
+                }
+
+                fn concatenated_columns() -> String {
+                    $name::columns().iter().fold(
+                        String::new(), |acc, el| {
+                            match acc.len() {
+                                0 => { acc + el },
+                                _ => { acc + ", " + el }
+                            }
+                        }
+                    )
+                }
+
+                pub fn insert_all(pool: &MyPool, items: &Vec<$name>) {
+                    // Let's insert payments to the database
+                    // We will use into_iter() because we does not need to map Stmt to anything
+                    // else.
+                    // Also we assume that no error happened in `prepare`.
+                    let query = "INSERT INTO ".to_string() +
+                        &$name::table() +
+                        " (" +
+                        &$name::concatenated_columns() +
+                        ") VALUES (?, ?, ?)";
+                    println!("{}", query);
+                    for mut stmt in pool.prepare(query).into_iter() {
+                        for i in items.iter() {
+                            // Unwrap each result just to make sure no errors happended
+                            stmt.execute(&[
+                                $( &i.$ex ),*,
+                            ]).unwrap();
+                        }
+                    }
+                }
+
+                pub fn all(pool: MyPool) -> Vec<$name> {
+                    let query = "SELECT ".to_string() +
+                        &$name::concatenated_columns() +
+                        " FROM " +
+                        &$name::table();
+                    println!("{}", query);
+                    let results: Vec<$name> = pool.prepare(query).
+                        and_then(| mut stmt| {
+                            stmt.execute(&[]).map(|result| {
+                                result.map(|x| x.unwrap()).map(|row| {
+                                    $name::from_row(row)
+                                }).collect()
+                            })
+                        }).unwrap();
+
+                    return results;
+                }
+            }
+        }
+    }
 }
 
+new_orm!(
+    Payment,
+    "tmp.payment",
+    [
+        0, customer_id: i32,
+        1, amount: i32,
+        2, account_name: Option<String>,
+    ]
+);
 
-#[derive(Debug, PartialEq, Eq)]
-struct Payment {
-    customer_id: i32,
-    amount: i32,
-    account_name: Option<String>,
-}
-
-impl metal::Metallic for Payment {
-    fn table(&self) -> &str {
-        "payments"
-    }
-    fn columns(&self) -> Vec<&str> {
-        vec![
-            "customer_id",
-            "amount",
-            "account_name",
-        ]
-    }
-}
 
 fn main() {
     let opts = MyOpts {
@@ -57,33 +126,9 @@ fn main() {
         Payment { customer_id: 9, amount: 10, account_name: Some("bar".into()) },
     ];
 
-    // Let's insert payments to the database
-    // We will use into_iter() because we does not need to map Stmt to anything else.
-    // Also we assume that no error happened in `prepare`.
-    for mut stmt in pool.prepare("INSERT INTO tmp.payment (customer_id, amount, account_name) VALUES (?, ?, ?)").into_iter() {
-        for p in payments.iter() {
-            // Unwrap each result just to make sure no errors happended
-            stmt.execute(&[&p.customer_id, &p.amount, &p.account_name]).unwrap();
-        }
-    }
+    Payment::insert_all(&pool, &payments);
 
-    // Let's select payments from the database
-    let selected_payments: Vec<Payment> = pool.prepare("SELECT customer_id, amount, account_name from tmp.payment")
-    .and_then(|mut stmt| { // In this closure we will map `Stmt` to `Vec<Payment>`
-        // Here we must use nested combinator because `stmt` must be in scope while working with `QueryResult`
-        stmt.execute(&[]).map(|result| { // In this closure we will map `QueryResult` to `Vec<Payment>`
-            // QueryResult is iterator over `MyResult<row,err>`
-            // so first call to map will map each `MyResult` to contained `row` (no proper error handling)
-            // and second call to map will map each `row` to `Payment`
-            result.map(|x| x.unwrap()).map(|row| {
-                Payment {
-                    customer_id: from_value(&row[0]),
-                    amount: from_value(&row[1]),
-                    account_name: from_value(&row[2]),
-                }
-            }).collect() // Collect payments so now `QueryResult` is mapped to `Vec<Payment>`
-        }) // bubble up `Vec<Payment>` to upper level `and_than`
-    }).unwrap(); // Unwrap `Vec<Payment>`
+    let selected_payments = Payment::all(pool);
 
     // Now make shure that `payments` equals `selected_payments`
     // mysql gives no guaranties on order of returned rows without `ORDER BY` 
